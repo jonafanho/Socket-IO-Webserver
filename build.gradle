@@ -1,8 +1,13 @@
 plugins {
 	id "java"
+	id "maven-publish"
 }
 
 group "org.mtr.webserver"
+version rootProject.properties.version
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
 
 repositories {
 	mavenCentral()
@@ -14,6 +19,15 @@ dependencies {
 	implementation "com.corundumstudio.socketio:netty-socketio:+"
 }
 
-tasks.withType(JavaCompile) {
-	options.release = 8;
+java {
+	withSourcesJar()
+	withJavadocJar()
+}
+
+publishing {
+	publications {
+		maven(MavenPublication) {
+			from components.java
+		}
+	}
 }
