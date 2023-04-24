@@ -23,14 +23,13 @@ import java.net.URL;
 import java.nio.channels.FileChannel;
 import java.util.Map;
 import java.util.function.BiConsumer;
-import java.util.function.Function;
 import java.util.function.ToLongFunction;
 
 public class Webserver {
 
 	private final SocketIOServer server;
 	private final ToLongFunction<JsonObject> getId;
-	private final Object2ObjectAVLTreeMap<String, Function<String, JsonObject>> getListeners = new Object2ObjectAVLTreeMap<>();
+	private final Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners = new Object2ObjectAVLTreeMap<>();
 	private final Long2ObjectAVLTreeMap<SocketIOClient> clients = new Long2ObjectAVLTreeMap<>();
 
 	/**
@@ -66,6 +65,10 @@ public class Webserver {
 		server.start();
 	}
 
+	public void stop() {
+		server.stop();
+	}
+
 	public void sendSocketEvent(long id, String channel, JsonObject jsonObject) {
 		sendSocketEvent(clients.get(id), channel, jsonObject);
 	}
@@ -88,7 +91,7 @@ public class Webserver {
 		});
 	}
 
-	public void addGetListener(String path, Function<String, JsonObject> function) {
+	public void addGetListener(String path, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>> function) {
 		getListeners.put(path, function);
 	}
 
@@ -96,9 +99,9 @@ public class Webserver {
 
 		private final Class<?> mainClass;
 		private final String resourcesRoot;
-		private final Object2ObjectAVLTreeMap<String, Function<String, JsonObject>> getListeners;
+		private final Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners;
 
-		private CustomSocketIOChannelInitializer(Class<?> mainClass, String resourcesRoot, Object2ObjectAVLTreeMap<String, Function<String, JsonObject>> getListeners) {
+		private CustomSocketIOChannelInitializer(Class<?> mainClass, String resourcesRoot, Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners) {
 			super();
 			this.mainClass = mainClass;
 			this.resourcesRoot = resourcesRoot;
@@ -116,9 +119,9 @@ public class Webserver {
 
 		private final Class<?> mainClass;
 		private final String resourcesRoot;
-		private final Object2ObjectAVLTreeMap<String, Function<String, JsonObject>> getListeners;
+		private final Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners;
 
-		private CustomChannelInboundHandlerAdapter(Class<?> mainClass, String resourcesRoot, Object2ObjectAVLTreeMap<String, Function<String, JsonObject>> getListeners) {
+		private CustomChannelInboundHandlerAdapter(Class<?> mainClass, String resourcesRoot, Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners) {
 			super();
 			this.mainClass = mainClass;
 			this.resourcesRoot = resourcesRoot;
@@ -128,19 +131,21 @@ public class Webserver {
 		@Override
 		protected void channelRead0(ChannelHandlerContext channelHandlerContext, FullHttpRequest fullHttpRequest) {
 			final String fullUri = fullHttpRequest.uri();
-			final String uri = fullUri.split("\\?")[0];
+			final String uri = removeLastSlash(fullUri.split("\\?")[0]);
 
-			for (final Map.Entry<String, Function<String, JsonObject>> entry : getListeners.entrySet()) {
+			for (final Map.Entry<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> entry : getListeners.entrySet()) {
 				final String path = entry.getKey();
-				if (path.endsWith("*") && uri.startsWith(path.replace("*", "")) || removeLastSlash(uri).equals(removeLastSlash(path))) {
-					final HttpResponse httpResponse = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, Unpooled.wrappedBuffer(entry.getValue().apply(fullUri).toString().getBytes()));
-					httpResponse.headers().add(HttpHeaderNames.CONTENT_TYPE, getMimeType("json"));
-					channelHandlerContext.channel().writeAndFlush(httpResponse).addListener(ChannelFutureListener.CLOSE);
+				if (path.endsWith("*") && uri.startsWith(path.replace("*", "")) || uri.equals(removeLastSlash(path))) {
+					entry.getValue().accept(new QueryStringDecoder(removeLastSlash(fullUri.replaceFirst("/\\?", "?"))), (jsonObject, httpResponseStatus) -> {
+						final HttpResponse httpResponse = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, httpResponseStatus, Unpooled.wrappedBuffer(jsonObject.toString().getBytes()));
+						httpResponse.headers().add(HttpHeaderNames.CONTENT_TYPE, getMimeType("json"));
+						channelHandlerContext.channel().writeAndFlush(httpResponse).addListener(ChannelFutureListener.CLOSE);
+					});
 					return;
 				}
 			}
 
-			getBuffer(uri, (byteBuf, mimeType) -> {
+			sendFile(uri, (byteBuf, mimeType) -> {
 				final HttpResponse httpResponse;
 				if (byteBuf == null) {
 					httpResponse = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.NOT_FOUND);
@@ -152,7 +157,7 @@ public class Webserver {
 			}, true);
 		}
 
-		private void getBuffer(String fileName, BiConsumer<ByteBuf, String> consumer, boolean shouldRetry) {
+		private void sendFile(String fileName, BiConsumer<ByteBuf, String> consumer, boolean shouldRetry) {
 			final URL url = mainClass.getResource(resourcesRoot + fileName);
 
 			if (url != null) {
@@ -169,7 +174,7 @@ public class Webserver {
 			}
 
 			if (shouldRetry) {
-				getBuffer("/index.html", consumer, false);
+				sendFile("/index.html", consumer, false);
 			} else {
 				consumer.accept(null, "");
 			}
