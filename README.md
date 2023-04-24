@@ -1,6 +1,6 @@
 # Socket.IO Webserver
 
-To add this to your project, use [JitPack](https://jitpack.io/#jonafanho/Socket.IO-Webserver/-SNAPSHOT). Remember to include the following dependencies as well.
+To add this to your project, use [JitPack](https://jitpack.io/#jonafanho/Socket-IO-Webserver/-SNAPSHOT). Remember to include the following dependencies as well.
 
 ```gradle
 dependencies {
