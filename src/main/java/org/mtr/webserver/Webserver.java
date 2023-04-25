@@ -21,6 +21,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.net.URL;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.ToLongFunction;
@@ -137,7 +138,7 @@ public class Webserver {
 				final String path = entry.getKey();
 				if (path.endsWith("*") && uri.startsWith(path.replace("*", "")) || uri.equals(removeLastSlash(path))) {
 					entry.getValue().accept(new QueryStringDecoder(removeLastSlash(fullUri.replaceFirst("/\\?", "?"))), (jsonObject, httpResponseStatus) -> {
-						final HttpResponse httpResponse = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, httpResponseStatus, Unpooled.wrappedBuffer(jsonObject.toString().getBytes()));
+						final HttpResponse httpResponse = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, httpResponseStatus, Unpooled.wrappedBuffer(jsonObject.toString().getBytes(StandardCharsets.UTF_16)));
 						httpResponse.headers().add(HttpHeaderNames.CONTENT_TYPE, getMimeType("json"));
 						channelHandlerContext.channel().writeAndFlush(httpResponse).addListener(ChannelFutureListener.CLOSE);
 					});

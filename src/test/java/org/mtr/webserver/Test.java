@@ -19,7 +19,7 @@ public class Test {
 		System.out.println("Server started");
 	}
 
-	private static void sendJson(QueryStringDecoder queryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus> sendRequest) {
+	private static void sendJson(QueryStringDecoder queryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus> sendResponse) {
 		final JsonObject parametersObject = new JsonObject();
 		queryStringDecoder.parameters().forEach((key, value) -> {
 			final JsonArray valuesArray = new JsonArray();
@@ -33,6 +33,6 @@ public class Test {
 		responseObject.addProperty("path", queryStringDecoder.path());
 		responseObject.add("parameters", parametersObject);
 
-		sendRequest.accept(responseObject, HttpResponseStatus.OK);
+		sendResponse.accept(responseObject, HttpResponseStatus.OK);
 	}
 }
