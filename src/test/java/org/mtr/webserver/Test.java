@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.QueryStringDecoder;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -12,7 +13,7 @@ import java.util.function.BiConsumer;
 public class Test {
 
 	public static void main(String[] args) {
-		final Webserver webserver = new Webserver(Test.class, "website", 8888, jsonObject -> 0);
+		final Webserver webserver = new Webserver(Test.class, "website", 8888, StandardCharsets.UTF_8, jsonObject -> 0);
 		webserver.addGetListener("/test/*", Test::sendJson);
 		webserver.addGetListener("/delay/*", (queryStringDecoder, sendRequest) -> Executors.newSingleThreadScheduledExecutor().schedule(() -> sendJson(queryStringDecoder, sendRequest), 5, TimeUnit.SECONDS));
 		webserver.start();

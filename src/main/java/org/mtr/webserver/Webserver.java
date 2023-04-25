@@ -21,7 +21,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.net.URL;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.ToLongFunction;
@@ -39,16 +39,17 @@ public class Webserver {
 	 * @param mainClass     the class file for finding a resource from.
 	 * @param resourcesRoot the root directory to serve files from.
 	 * @param port          the port number for this webserver.
+	 * @param charset       the {@link Charset} for encoding the response
 	 * @param getId         a function to get a unique ID (represented as a long) from socket {@link JsonObject}.
 	 */
-	public Webserver(Class<?> mainClass, String resourcesRoot, int port, ToLongFunction<JsonObject> getId) {
+	public Webserver(Class<?> mainClass, String resourcesRoot, int port, Charset charset, ToLongFunction<JsonObject> getId) {
 		final Configuration configuration = new Configuration();
 		configuration.setPort(port);
 		configuration.getSocketConfig().setReuseAddress(true);
 		configuration.setAllowCustomRequests(true);
 
 		server = new SocketIOServer(configuration);
-		server.setPipelineFactory(new CustomSocketIOChannelInitializer(mainClass, resourcesRoot, getListeners));
+		server.setPipelineFactory(new CustomSocketIOChannelInitializer(mainClass, resourcesRoot, charset, getListeners));
 		server.addDisconnectListener(client -> {
 			final LongArrayList idsToRemove = new LongArrayList();
 			clients.forEach((id, checkClient) -> {
@@ -100,19 +101,21 @@ public class Webserver {
 
 		private final Class<?> mainClass;
 		private final String resourcesRoot;
+		private final Charset charset;
 		private final Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners;
 
-		private CustomSocketIOChannelInitializer(Class<?> mainClass, String resourcesRoot, Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners) {
+		private CustomSocketIOChannelInitializer(Class<?> mainClass, String resourcesRoot, Charset charset, Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners) {
 			super();
 			this.mainClass = mainClass;
 			this.resourcesRoot = resourcesRoot;
+			this.charset = charset;
 			this.getListeners = getListeners;
 		}
 
 		@Override
 		protected void addSocketioHandlers(ChannelPipeline pipeline) {
 			super.addSocketioHandlers(pipeline);
-			pipeline.addBefore(WRONG_URL_HANDLER, "custom", new CustomChannelInboundHandlerAdapter(mainClass, resourcesRoot, getListeners));
+			pipeline.addBefore(WRONG_URL_HANDLER, "custom", new CustomChannelInboundHandlerAdapter(mainClass, resourcesRoot, charset, getListeners));
 		}
 	}
 
@@ -120,12 +123,14 @@ public class Webserver {
 
 		private final Class<?> mainClass;
 		private final String resourcesRoot;
+		private final Charset charset;
 		private final Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners;
 
-		private CustomChannelInboundHandlerAdapter(Class<?> mainClass, String resourcesRoot, Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners) {
+		private CustomChannelInboundHandlerAdapter(Class<?> mainClass, String resourcesRoot, Charset charset, Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners) {
 			super();
 			this.mainClass = mainClass;
 			this.resourcesRoot = resourcesRoot;
+			this.charset = charset;
 			this.getListeners = getListeners;
 		}
 
@@ -138,7 +143,7 @@ public class Webserver {
 				final String path = entry.getKey();
 				if (path.endsWith("*") && uri.startsWith(path.replace("*", "")) || uri.equals(removeLastSlash(path))) {
 					entry.getValue().accept(new QueryStringDecoder(removeLastSlash(fullUri.replaceFirst("/\\?", "?"))), (jsonObject, httpResponseStatus) -> {
-						final HttpResponse httpResponse = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, httpResponseStatus, Unpooled.wrappedBuffer(jsonObject.toString().getBytes(StandardCharsets.UTF_16)));
+						final HttpResponse httpResponse = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, httpResponseStatus, Unpooled.wrappedBuffer(jsonObject.toString().getBytes(charset)));
 						httpResponse.headers().add(HttpHeaderNames.CONTENT_TYPE, getMimeType("json"));
 						channelHandlerContext.channel().writeAndFlush(httpResponse).addListener(ChannelFutureListener.CLOSE);
 					});
