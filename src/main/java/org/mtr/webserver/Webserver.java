@@ -22,6 +22,7 @@ import java.io.FileInputStream;
 import java.net.URL;
 import java.nio.channels.FileChannel;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.ToLongFunction;
@@ -30,11 +31,11 @@ public class Webserver {
 
 	private final SocketIOServer server;
 	private final ToLongFunction<JsonObject> getId;
-	private final Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners = new Object2ObjectAVLTreeMap<>();
+	private final Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners = new Object2ObjectAVLTreeMap<>();
 	private final Long2ObjectAVLTreeMap<SocketIOClient> clients = new Long2ObjectAVLTreeMap<>();
 
 	/**
-	 * A webserver that serves static files, GET requests, and Socket.IO websockets.
+	 * A webserver that serves static files, HTTP requests, and Socket.IO websockets.
 	 *
 	 * @param mainClass     the class file for finding a resource from.
 	 * @param resourcesRoot the root directory to serve files from.
@@ -49,7 +50,7 @@ public class Webserver {
 		configuration.setAllowCustomRequests(true);
 
 		server = new SocketIOServer(configuration);
-		server.setPipelineFactory(new CustomSocketIOChannelInitializer(mainClass, resourcesRoot, charset, getListeners));
+		server.setPipelineFactory(new CustomSocketIOChannelInitializer(mainClass, resourcesRoot, charset, httpListeners));
 		server.addDisconnectListener(client -> {
 			final LongArrayList idsToRemove = new LongArrayList();
 			clients.forEach((id, checkClient) -> {
@@ -93,8 +94,8 @@ public class Webserver {
 		});
 	}
 
-	public void addGetListener(String path, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>> function) {
-		getListeners.put(path, function);
+	public void addHttpListener(String path, HttpRequestListener httpRequestListener) {
+		httpListeners.put(path, httpRequestListener);
 	}
 
 	private static class CustomSocketIOChannelInitializer extends SocketIOChannelInitializer {
@@ -102,20 +103,20 @@ public class Webserver {
 		private final Class<?> mainClass;
 		private final String resourcesRoot;
 		private final Charset charset;
-		private final Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners;
+		private final Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners;
 
-		private CustomSocketIOChannelInitializer(Class<?> mainClass, String resourcesRoot, Charset charset, Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners) {
+		private CustomSocketIOChannelInitializer(Class<?> mainClass, String resourcesRoot, Charset charset, Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners) {
 			super();
 			this.mainClass = mainClass;
 			this.resourcesRoot = resourcesRoot;
 			this.charset = charset;
-			this.getListeners = getListeners;
+			this.httpListeners = httpListeners;
 		}
 
 		@Override
 		protected void addSocketioHandlers(ChannelPipeline pipeline) {
 			super.addSocketioHandlers(pipeline);
-			pipeline.addBefore(WRONG_URL_HANDLER, "custom", new CustomChannelInboundHandlerAdapter(mainClass, resourcesRoot, charset, getListeners));
+			pipeline.addBefore(WRONG_URL_HANDLER, "custom", new CustomChannelInboundHandlerAdapter(mainClass, resourcesRoot, charset, httpListeners));
 		}
 	}
 
@@ -124,14 +125,14 @@ public class Webserver {
 		private final Class<?> mainClass;
 		private final String resourcesRoot;
 		private final Charset charset;
-		private final Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners;
+		private final Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners;
 
-		private CustomChannelInboundHandlerAdapter(Class<?> mainClass, String resourcesRoot, Charset charset, Object2ObjectAVLTreeMap<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> getListeners) {
+		private CustomChannelInboundHandlerAdapter(Class<?> mainClass, String resourcesRoot, Charset charset, Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners) {
 			super();
 			this.mainClass = mainClass;
 			this.resourcesRoot = resourcesRoot;
 			this.charset = charset;
-			this.getListeners = getListeners;
+			this.httpListeners = httpListeners;
 		}
 
 		@Override
@@ -139,14 +140,21 @@ public class Webserver {
 			final String fullUri = fullHttpRequest.uri();
 			final String uri = removeLastSlash(fullUri.split("\\?")[0]);
 
-			for (final Map.Entry<String, BiConsumer<QueryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus>>> entry : getListeners.entrySet()) {
+			for (final Map.Entry<String, HttpRequestListener> entry : httpListeners.entrySet()) {
 				final String path = entry.getKey();
 				if (path.endsWith("*") && uri.startsWith(path.replace("*", "")) || uri.equals(removeLastSlash(path))) {
-					entry.getValue().accept(new QueryStringDecoder(removeLastSlash(fullUri.replaceFirst("/\\?", "?"))), (jsonObject, httpResponseStatus) -> {
+					JsonObject bodyObject = new JsonObject();
+					try {
+						bodyObject = JsonParser.parseString(fullHttpRequest.content().toString(StandardCharsets.UTF_8)).getAsJsonObject();
+					} catch (Exception ignored) {
+					}
+
+					entry.getValue().accept(new QueryStringDecoder(removeLastSlash(fullUri.replaceFirst("/\\?", "?"))), bodyObject, (jsonObject, httpResponseStatus) -> {
 						final HttpResponse httpResponse = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, httpResponseStatus, Unpooled.wrappedBuffer(jsonObject.toString().getBytes(charset)));
-						httpResponse.headers().add(HttpHeaderNames.CONTENT_TYPE, getMimeType("json"));
+						httpResponse.headers().add(HttpHeaderNames.CONTENT_TYPE, getMimeType("json")).add(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 						channelHandlerContext.channel().writeAndFlush(httpResponse).addListener(ChannelFutureListener.CLOSE);
 					});
+
 					return;
 				}
 			}
@@ -211,5 +219,10 @@ public class Webserver {
 	@FunctionalInterface
 	public interface SocketListener {
 		void accept(SocketIOClient client, long id, JsonObject jsonObject);
+	}
+
+	@FunctionalInterface
+	public interface HttpRequestListener {
+		void accept(QueryStringDecoder queryStringDecoder, JsonObject bodyObject, BiConsumer<JsonObject, HttpResponseStatus> consumer);
 	}
 }

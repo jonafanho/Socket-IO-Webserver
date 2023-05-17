@@ -14,13 +14,13 @@ public class Test {
 
 	public static void main(String[] args) {
 		final Webserver webserver = new Webserver(Test.class, "website", 8888, StandardCharsets.UTF_8, jsonObject -> 0);
-		webserver.addGetListener("/test/*", Test::sendJson);
-		webserver.addGetListener("/delay/*", (queryStringDecoder, sendRequest) -> Executors.newSingleThreadScheduledExecutor().schedule(() -> sendJson(queryStringDecoder, sendRequest), 5, TimeUnit.SECONDS));
+		webserver.addHttpListener("/test/*", Test::sendJson);
+		webserver.addHttpListener("/delay/*", (queryStringDecoder, bodyObject, sendRequest) -> Executors.newSingleThreadScheduledExecutor().schedule(() -> sendJson(queryStringDecoder, bodyObject, sendRequest), 5, TimeUnit.SECONDS));
 		webserver.start();
 		System.out.println("Server started");
 	}
 
-	private static void sendJson(QueryStringDecoder queryStringDecoder, BiConsumer<JsonObject, HttpResponseStatus> sendResponse) {
+	private static void sendJson(QueryStringDecoder queryStringDecoder, JsonObject bodyObject, BiConsumer<JsonObject, HttpResponseStatus> sendResponse) {
 		final JsonObject parametersObject = new JsonObject();
 		queryStringDecoder.parameters().forEach((key, value) -> {
 			final JsonArray valuesArray = new JsonArray();
@@ -33,6 +33,7 @@ public class Test {
 		responseObject.addProperty("uri", queryStringDecoder.uri());
 		responseObject.addProperty("path", queryStringDecoder.path());
 		responseObject.add("parameters", parametersObject);
+		responseObject.add("body", bodyObject);
 
 		sendResponse.accept(responseObject, HttpResponseStatus.OK);
 	}
