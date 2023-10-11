@@ -17,6 +17,8 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectAVLTreeMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.objects.Object2ObjectAVLTreeMap;
 
+import javax.annotation.Nullable;
+import javax.annotation.ParametersAreNonnullByDefault;
 import java.io.File;
 import java.io.FileInputStream;
 import java.net.URL;
@@ -25,8 +27,10 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.function.ToLongFunction;
 
+@ParametersAreNonnullByDefault
 public class Webserver {
 
 	private final SocketIOServer server;
@@ -44,13 +48,30 @@ public class Webserver {
 	 * @param getId         a function to get a unique ID (represented as a long) from socket {@link JsonObject}.
 	 */
 	public Webserver(Class<?> mainClass, String resourcesRoot, int port, Charset charset, ToLongFunction<JsonObject> getId) {
+		this(mainClass, resourcesRoot, null, port, charset, getId);
+	}
+
+	/**
+	 * A webserver that serves static files, HTTP requests, and Socket.IO websockets.
+	 *
+	 * @param mainClass   the class file for finding a resource from.
+	 * @param getResource a function to supply resources.
+	 * @param port        the port number for this webserver.
+	 * @param charset     the {@link Charset} for encoding the response
+	 * @param getId       a function to get a unique ID (represented as a long) from socket {@link JsonObject}.
+	 */
+	public Webserver(Class<?> mainClass, Function<String, String> getResource, int port, Charset charset, ToLongFunction<JsonObject> getId) {
+		this(mainClass, null, getResource, port, charset, getId);
+	}
+
+	private Webserver(Class<?> mainClass, @Nullable String resourcesRoot, @Nullable Function<String, String> getResource, int port, Charset charset, ToLongFunction<JsonObject> getId) {
 		final Configuration configuration = new Configuration();
 		configuration.setPort(port);
 		configuration.getSocketConfig().setReuseAddress(true);
 		configuration.setAllowCustomRequests(true);
 
 		server = new SocketIOServer(configuration);
-		server.setPipelineFactory(new CustomSocketIOChannelInitializer(mainClass, resourcesRoot, charset, httpListeners));
+		server.setPipelineFactory(new CustomSocketIOChannelInitializer(mainClass, resourcesRoot, getResource, charset, httpListeners));
 		server.addDisconnectListener(client -> {
 			final LongArrayList idsToRemove = new LongArrayList();
 			clients.forEach((id, checkClient) -> {
@@ -58,7 +79,9 @@ public class Webserver {
 					idsToRemove.add(id.longValue());
 				}
 			});
-			idsToRemove.forEach(clients::remove);
+			for (final long id : idsToRemove) {
+				clients.remove(id);
+			}
 		});
 
 		this.getId = getId;
@@ -76,7 +99,7 @@ public class Webserver {
 		sendSocketEvent(clients.get(id), channel, jsonObject);
 	}
 
-	public void sendSocketEvent(SocketIOClient client, String channel, JsonObject jsonObject) {
+	public void sendSocketEvent(@Nullable SocketIOClient client, String channel, @Nullable JsonObject jsonObject) {
 		if (client != null) {
 			client.sendEvent(channel, (jsonObject == null ? new JsonObject() : jsonObject).toString());
 		}
@@ -85,7 +108,7 @@ public class Webserver {
 	public void addSocketListener(String channel, SocketListener socketListener) {
 		server.addEventListener(channel, String.class, (client, message, ackRequest) -> {
 			try {
-				final JsonObject jsonObject = JsonParser.parseString(message).getAsJsonObject();
+				final JsonObject jsonObject = new JsonParser().parse(message).getAsJsonObject();
 				final long id = getId.applyAsLong(jsonObject);
 				clients.put(id, client);
 				socketListener.accept(client, id, jsonObject);
@@ -102,13 +125,15 @@ public class Webserver {
 
 		private final Class<?> mainClass;
 		private final String resourcesRoot;
+		private final Function<String, String> getResource;
 		private final Charset charset;
 		private final Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners;
 
-		private CustomSocketIOChannelInitializer(Class<?> mainClass, String resourcesRoot, Charset charset, Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners) {
+		private CustomSocketIOChannelInitializer(Class<?> mainClass, @Nullable String resourcesRoot, @Nullable Function<String, String> getResource, Charset charset, Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners) {
 			super();
 			this.mainClass = mainClass;
 			this.resourcesRoot = resourcesRoot;
+			this.getResource = getResource;
 			this.charset = charset;
 			this.httpListeners = httpListeners;
 		}
@@ -116,7 +141,7 @@ public class Webserver {
 		@Override
 		protected void addSocketioHandlers(ChannelPipeline pipeline) {
 			super.addSocketioHandlers(pipeline);
-			pipeline.addBefore(WRONG_URL_HANDLER, "custom", new CustomChannelInboundHandlerAdapter(mainClass, resourcesRoot, charset, httpListeners));
+			pipeline.addBefore(WRONG_URL_HANDLER, "custom", new CustomChannelInboundHandlerAdapter(mainClass, resourcesRoot, getResource, charset, httpListeners));
 		}
 	}
 
@@ -124,13 +149,15 @@ public class Webserver {
 
 		private final Class<?> mainClass;
 		private final String resourcesRoot;
+		private final Function<String, String> getResource;
 		private final Charset charset;
 		private final Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners;
 
-		private CustomChannelInboundHandlerAdapter(Class<?> mainClass, String resourcesRoot, Charset charset, Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners) {
+		private CustomChannelInboundHandlerAdapter(Class<?> mainClass, @Nullable String resourcesRoot, @Nullable Function<String, String> getResource, Charset charset, Object2ObjectAVLTreeMap<String, HttpRequestListener> httpListeners) {
 			super();
 			this.mainClass = mainClass;
 			this.resourcesRoot = resourcesRoot;
+			this.getResource = getResource;
 			this.charset = charset;
 			this.httpListeners = httpListeners;
 		}
@@ -145,7 +172,7 @@ public class Webserver {
 				if (path.endsWith("*") && uri.startsWith(path.replace("*", "")) || uri.equals(removeLastSlash(path))) {
 					JsonObject bodyObject = new JsonObject();
 					try {
-						bodyObject = JsonParser.parseString(fullHttpRequest.content().toString(StandardCharsets.UTF_8)).getAsJsonObject();
+						bodyObject = new JsonParser().parse(fullHttpRequest.content().toString(StandardCharsets.UTF_8)).getAsJsonObject();
 					} catch (Exception ignored) {
 					}
 
@@ -172,18 +199,28 @@ public class Webserver {
 		}
 
 		private void sendFile(String fileName, BiConsumer<ByteBuf, String> consumer, boolean shouldRetry) {
-			final URL url = mainClass.getResource(resourcesRoot + fileName);
+			if (resourcesRoot != null) {
+				final URL url = mainClass.getResource(resourcesRoot + fileName);
 
-			if (url != null) {
-				try {
-					final File file = new File(url.toURI());
-					try (final FileInputStream fileInputStream = new FileInputStream(file)) {
-						try (final FileChannel fileChannel = fileInputStream.getChannel()) {
-							consumer.accept(Unpooled.wrappedBuffer(fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())), getMimeType(fileName));
-							return;
+				if (url != null) {
+					try {
+						final File file = new File(url.toURI());
+						try (final FileInputStream fileInputStream = new FileInputStream(file)) {
+							try (final FileChannel fileChannel = fileInputStream.getChannel()) {
+								consumer.accept(Unpooled.wrappedBuffer(fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())), getMimeType(fileName));
+								return;
+							}
 						}
+					} catch (Exception ignored) {
 					}
-				} catch (Exception ignored) {
+				}
+			}
+
+			if (getResource != null) {
+				final String content = getResource.apply(fileName);
+				if (content != null) {
+					consumer.accept(Unpooled.wrappedBuffer(content.getBytes()), getMimeType(fileName));
+					return;
 				}
 			}
 
