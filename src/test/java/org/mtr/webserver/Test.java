@@ -1,9 +1,9 @@
 package org.mtr.webserver;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http.QueryStringDecoder;
+import org.mtr.libraries.com.google.gson.JsonArray;
+import org.mtr.libraries.com.google.gson.JsonObject;
+import org.mtr.libraries.io.netty.handler.codec.http.HttpResponseStatus;
+import org.mtr.libraries.io.netty.handler.codec.http.QueryStringDecoder;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;

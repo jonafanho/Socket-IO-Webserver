@@ -1,21 +1,21 @@
 package org.mtr.webserver;
 
-import com.corundumstudio.socketio.Configuration;
-import com.corundumstudio.socketio.SocketIOChannelInitializer;
-import com.corundumstudio.socketio.SocketIOClient;
-import com.corundumstudio.socketio.SocketIOServer;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.handler.codec.http.*;
-import it.unimi.dsi.fastutil.longs.Long2ObjectAVLTreeMap;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.objects.Object2ObjectAVLTreeMap;
+import org.mtr.libraries.com.corundumstudio.socketio.Configuration;
+import org.mtr.libraries.com.corundumstudio.socketio.SocketIOChannelInitializer;
+import org.mtr.libraries.com.corundumstudio.socketio.SocketIOClient;
+import org.mtr.libraries.com.corundumstudio.socketio.SocketIOServer;
+import org.mtr.libraries.com.google.gson.JsonObject;
+import org.mtr.libraries.com.google.gson.JsonParser;
+import org.mtr.libraries.io.netty.buffer.ByteBuf;
+import org.mtr.libraries.io.netty.buffer.Unpooled;
+import org.mtr.libraries.io.netty.channel.ChannelFutureListener;
+import org.mtr.libraries.io.netty.channel.ChannelHandlerContext;
+import org.mtr.libraries.io.netty.channel.ChannelPipeline;
+import org.mtr.libraries.io.netty.channel.SimpleChannelInboundHandler;
+import org.mtr.libraries.io.netty.handler.codec.http.*;
+import org.mtr.libraries.it.unimi.dsi.fastutil.longs.Long2ObjectAVLTreeMap;
+import org.mtr.libraries.it.unimi.dsi.fastutil.longs.LongArrayList;
+import org.mtr.libraries.it.unimi.dsi.fastutil.objects.Object2ObjectAVLTreeMap;
 
 import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
@@ -108,7 +108,7 @@ public class Webserver {
 	public void addSocketListener(String channel, SocketListener socketListener) {
 		server.addEventListener(channel, String.class, (client, message, ackRequest) -> {
 			try {
-				final JsonObject jsonObject = new JsonParser().parse(message).getAsJsonObject();
+				final JsonObject jsonObject = JsonParser.parseString(message).getAsJsonObject();
 				final long id = getId.applyAsLong(jsonObject);
 				clients.put(id, client);
 				socketListener.accept(client, id, jsonObject);
@@ -172,7 +172,7 @@ public class Webserver {
 				if (path.endsWith("*") && uri.startsWith(path.replace("*", "")) || uri.equals(removeLastSlash(path))) {
 					JsonObject bodyObject = new JsonObject();
 					try {
-						bodyObject = new JsonParser().parse(fullHttpRequest.content().toString(StandardCharsets.UTF_8)).getAsJsonObject();
+						bodyObject = JsonParser.parseString(fullHttpRequest.content().toString(StandardCharsets.UTF_8)).getAsJsonObject();
 					} catch (Exception ignored) {
 					}
 

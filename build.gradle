@@ -11,13 +11,12 @@ targetCompatibility = 1.8
 
 repositories {
 	mavenCentral()
+	maven { url "https://jitpack.io" }
 }
 
 dependencies {
-	implementation "com.google.code.gson:gson:2.8.0"
-	implementation "it.unimi.dsi:fastutil:8.2.1"
 	implementation "com.google.code.findbugs:jsr305:+"
-	implementation "com.corundumstudio.socketio:netty-socketio:+"
+	implementation "com.github.jonafanho:Shadow-Libraries:master-SNAPSHOT"
 }
 
 java {
