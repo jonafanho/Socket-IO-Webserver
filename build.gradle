@@ -6,20 +6,20 @@ plugins {
 group "org.mtr.webserver"
 version rootProject.properties.version
 
-sourceCompatibility = 1.8
-targetCompatibility = 1.8
-
 repositories {
 	mavenCentral()
 	maven { url "https://jitpack.io" }
 }
 
 dependencies {
-	implementation "com.google.code.findbugs:jsr305:+"
 	implementation "com.github.jonafanho:Shadow-Libraries:master-SNAPSHOT"
+	compileOnly "com.google.code.findbugs:jsr305:+"
 }
 
 java {
+	toolchain {
+		languageVersion.set(JavaLanguageVersion.of(8))
+	}
 	withSourcesJar()
 	withJavadocJar()
 }
